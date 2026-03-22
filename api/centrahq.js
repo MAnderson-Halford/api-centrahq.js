@@ -39,9 +39,23 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({
-      reply: data.output_text || "No reply returned"
-    });
+    const reply =
+      data.output_text ||
+      (data.output &&
+       data.output[0] &&
+       data.output[0].content &&
+       data.output[0].content[0] &&
+       data.output[0].content[0].text) ||
+      null;
+
+    if (!reply) {
+      return res.status(500).json({
+        error: "No reply field found",
+        debug: data
+      });
+    }
+
+    return res.status(200).json({ reply });
   } catch (error) {
     return res.status(500).json({
       error: "Server error",
