@@ -1,47 +1,51 @@
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  const { message } = req.body;
-
-  const systemPrompt = `
-You are CentraHQ, a professional AI assistant.
-
-Your role:
-- help users with sales, support, and lead capture
-- keep answers short and clear
-- guide users toward next steps like quote or contact
-
-Never invent information.
-If unsure, offer to connect to a human.
-`;
-
+export async function POST(req) {
   try {
+    const body = await req.json();
+    const message = body.message;
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message }
+          {
+            role: "system",
+            content: "You are a helpful assistant called CentraHQ."
+          },
+          {
+            role: "user",
+            content: message
+          }
         ]
-      })
+      }),
     });
 
     const data = await response.json();
 
-    return res.status(200).json({
-      reply: data.choices[0].message.content
-    });
+    if (!data.choices) {
+      return new Response(
+        JSON.stringify({ reply: "AI error — check API key." }),
+        { status: 500 }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        reply: data.choices[0].message.content
+      }),
+      { status: 200 }
+    );
 
   } catch (error) {
-    return res.status(500).json({
-      reply: "Something went wrong. Want me to connect you to someone?"
-    });
+    return new Response(
+      JSON.stringify({
+        reply: "Server error — something broke."
+      }),
+      { status: 500 }
+    );
   }
 }
