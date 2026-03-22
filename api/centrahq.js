@@ -29,7 +29,7 @@ export default async function handler(req, res) {
         messages: [
           {
             role: "system",
-            content: "You are CentraHQ, a helpful assistant for business owners.",
+            content: "You are CentraHQ, a friendly, confident assistant helping business owners with CRM, automation, and growth. Keep answers short, clear, and helpful. Always guide users toward taking action."
           },
           {
             role: "user",
