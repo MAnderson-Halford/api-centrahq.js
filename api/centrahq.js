@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { message } = req.body || {};
+    const { message, transcript = [], page_url = "" } = req.body || {};
 
     if (!message) {
       return res.status(400).json({ error: "Missing message" });
@@ -25,6 +25,71 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     }
 
+    const lower = message.toLowerCase();
+
+    const leadIntent =
+      lower.includes("quote") ||
+      lower.includes("pricing") ||
+      lower.includes("price") ||
+      lower.includes("interested") ||
+      lower.includes("demo") ||
+      lower.includes("callback") ||
+      lower.includes("contact me") ||
+      lower.includes("speak to sales");
+
+    const emailMatch = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+
+    let collectedName = null;
+    let collectedEmail = emailMatch ? emailMatch[0] : null;
+
+    for (let i = transcript.length - 1; i >= 0; i--) {
+      const item = transcript[i];
+      if (!item || item.role !== "user" || !item.text) continue;
+
+      const text = item.text.trim();
+
+      if (!collectedEmail) {
+        const em = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+        if (em) collectedEmail = em[0];
+      }
+
+      if (!collectedName) {
+        const looksLikeName =
+          text.length >= 3 &&
+          text.length <= 60 &&
+          !text.includes("@") &&
+          /^[a-zA-Z ,.'-]+$/.test(text) &&
+          text.split(" ").length <= 4;
+
+        if (looksLikeName) {
+          collectedName = text;
+        }
+      }
+
+      if (collectedName && collectedEmail) break;
+    }
+
+    const systemPrompt = `
+You are CentraHQ, a helpful assistant for business owners.
+
+Rules:
+- Be concise, helpful, and professional.
+- If the user shows buying intent, try to collect name and email.
+- If the user asks about pricing, quotes, demos, callbacks, or sales, guide them toward leaving details.
+- If you do not yet have their name, ask for it.
+- If you have their name but not their email, ask for their best email address.
+- Once you have both, tell them: "Thanks — someone from the team will be in touch shortly."
+`;
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...transcript.map(item => ({
+        role: item.role,
+        content: item.text
+      })),
+      { role: "user", content: message }
+    ];
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -33,8 +98,68 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [
-          {
+        messages
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: "OpenAI request failed",
+        details: data
+      });
+    }
+
+    const reply = data.choices?.[0]?.message?.content;
+
+    if (!reply) {
+      return res.status(500).json({
+        error: "No reply from AI",
+        debug: data
+      });
+    }
+
+    let zapSent = false;
+
+    if (collectedName && collectedEmail) {
+      const leadPayload = {
+        source: "CentraHQ Website Chat",
+        name: collectedName,
+        email: collectedEmail,
+        interest: message,
+        page_url,
+        timestamp: new Date().toISOString(),
+        transcript: [...transcript, { role: "user", text: message }, { role: "assistant", text: reply }]
+      };
+
+      try {
+        await fetch("https://hooks.zapier.com/hooks/catch/23447444/up03en3/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(leadPayload)
+        });
+        zapSent = true;
+      } catch (zapError) {
+        console.error("Zapier webhook failed:", zapError);
+      }
+    }
+
+    return res.status(200).json({
+      reply,
+      leadCaptured: Boolean(collectedName && collectedEmail),
+      zapSent
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      error: "Server error",
+      details: String(error)
+    });
+  }
+}          {
             role: "system",
             content: "You are CentraHQ, a helpful assistant for business owners."
           },
