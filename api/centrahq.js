@@ -27,16 +27,6 @@ export default async function handler(req, res) {
 
     const lower = message.toLowerCase();
 
-    const leadIntent =
-      lower.includes("quote") ||
-      lower.includes("pricing") ||
-      lower.includes("price") ||
-      lower.includes("interested") ||
-      lower.includes("demo") ||
-      lower.includes("callback") ||
-      lower.includes("contact me") ||
-      lower.includes("speak to sales");
-
     const emailMatch = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
 
     let collectedName = null;
@@ -83,22 +73,24 @@ Rules:
 
     const messages = [
       { role: "system", content: systemPrompt },
-      ...transcript.map(item => ({
-        role: item.role,
-        content: item.text
-      })),
+      ...transcript.map(function (item) {
+        return {
+          role: item.role,
+          content: item.text
+        };
+      }),
       { role: "user", content: message }
     ];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages
+        messages: messages
       })
     });
 
@@ -111,7 +103,9 @@ Rules:
       });
     }
 
-    const reply = data.choices?.[0]?.message?.content;
+    const reply = data.choices && data.choices[0] && data.choices[0].message
+      ? data.choices[0].message.content
+      : null;
 
     if (!reply) {
       return res.status(500).json({
@@ -128,9 +122,12 @@ Rules:
         name: collectedName,
         email: collectedEmail,
         interest: message,
-        page_url,
+        page_url: page_url,
         timestamp: new Date().toISOString(),
-        transcript: [...transcript, { role: "user", text: message }, { role: "assistant", text: reply }]
+        transcript: transcript.concat([
+          { role: "user", text: message },
+          { role: "assistant", text: reply }
+        ])
       };
 
       try {
@@ -148,48 +145,11 @@ Rules:
     }
 
     return res.status(200).json({
-      reply,
+      reply: reply,
       leadCaptured: Boolean(collectedName && collectedEmail),
-      zapSent
+      zapSent: zapSent
     });
 
-  } catch (error) {
-    return res.status(500).json({
-      error: "Server error",
-      details: String(error)
-    });
-  }
-}          {
-            role: "system",
-            content: "You are CentraHQ, a helpful assistant for business owners."
-          },
-          {
-            role: "user",
-            content: message
-          }
-        ]
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "OpenAI request failed",
-        details: data
-      });
-    }
-
-    const reply = data.choices?.[0]?.message?.content;
-
-    if (!reply) {
-      return res.status(500).json({
-        error: "No reply from AI",
-        debug: data
-      });
-    }
-
-    return res.status(200).json({ reply });
   } catch (error) {
     return res.status(500).json({
       error: "Server error",
